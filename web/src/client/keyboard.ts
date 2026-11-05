@@ -86,6 +86,14 @@ export function setupKeyboard(
 			if (e.code === 'AltRight' && e.key === 'AltGraph') return 0xfe03;
 			return BY_CODE[e.code];
 		}
+		// Shortcut chords use physical letters/digits, not macOS Option's composed
+		// characters (Alt+Q → œ, Alt+1 → ¡, Alt+2 → ™). Shift stays a separate
+		// modifier so Alt+Shift+number can move windows too. Leave AltGr text alone.
+		if ((e.ctrlKey || e.metaKey || e.altKey || app.modifiers?.size) &&
+			!e.getModifierState('AltGraph')) {
+			if (/^Key[A-Z]$/.test(e.code)) return e.code.charCodeAt(3) + 32;
+			if (/^Digit[0-9]$/.test(e.code)) return e.code.charCodeAt(5);
+		}
 		const k = e.key;
 		if (NAMED[k] !== undefined) return NAMED[k];
 		if (!k || k === 'Dead' || k === 'Unidentified' || k === 'Process') return 0;
@@ -94,6 +102,7 @@ export function setupKeyboard(
 	}
 
 	const down = new Map<string, number>(); // code -> keysym
+	let syntheticAlt = false;
 	let pendingPaste: {
 		code: string;
 		ks: number;
@@ -114,8 +123,11 @@ export function setupKeyboard(
 		send(cmd.key(ks, false));
 	}
 	function releaseAll() {
+		syntheticAlt = false;
 		down.clear();
 		send(cmd.releaseAll);
+		app.modifiers?.clear();
+		surface.dispatchEvent(new Event('voxl-modifiers-reset'));
 	}
 	function flushPaste() {
 		if (!pendingPaste) return;
@@ -138,6 +150,13 @@ export function setupKeyboard(
 			return;
 		}
 		e.preventDefault();
+		// Focus may enter the iframe while Option is already held, so its keydown
+		// never reached us. Recover Alt from the chord's modifier flags.
+		if (e.altKey && !e.getModifierState('AltGraph') &&
+			!e.code.startsWith('Alt') && !down.has('AltLeft') && !down.has('AltRight') && !app.modifiers?.has(0xffe9)) {
+			press('AltLeft', 0xffe9);
+			syntheticAlt = true;
+		}
 		const held = down.get(e.code);
 		if (e.repeat && held !== undefined) {
 			send(cmd.key(held, true));
@@ -148,7 +167,14 @@ export function setupKeyboard(
 	function onKeyUp(e: KeyboardEvent) {
 		e.preventDefault();
 		if (pendingPaste && pendingPaste.code === e.code) flushPaste();
+		const released = down.get(e.code);
 		release(e.code);
+		if (released !== undefined && app.modifiers?.has(released)) send(cmd.key(released, true));
+		if (syntheticAlt && (!e.altKey || e.code.startsWith('Alt'))) {
+			release('AltLeft');
+			if (app.modifiers?.has(0xffe9)) send(cmd.key(0xffe9, true));
+			syntheticAlt = false;
+		}
 		// macOS swallows keyups of keys released while Cmd is held.
 		if (isMac && (e.code === 'MetaLeft' || e.code === 'MetaRight')) {
 			for (const code of down.keys())
@@ -159,6 +185,24 @@ export function setupKeyboard(
 		target.addEventListener('keydown', onKeyDown);
 		target.addEventListener('keyup', onKeyUp);
 	}
+	// Workspace chords also work when a toolbar button or the page background has
+	// focus. Do not capture typing in local file dialogs/forms. No parent-page or
+	// OS-reserved shortcuts can be intercepted from inside a cross-origin iframe.
+	function localForm(e: KeyboardEvent) {
+		const target = e.target;
+		return target instanceof HTMLElement && target !== kbd &&
+			!!target.closest('input, textarea, select, [contenteditable="true"], #files');
+	}
+	document.addEventListener('keydown', e => {
+		if (!e.altKey || !/^Digit[0-9]$/.test(e.code) || localForm(e)) return;
+		onKeyDown(e);
+		e.stopPropagation();
+	}, true);
+	document.addEventListener('keyup', e => {
+		if (e.target === kbd || e.target === surface) return;
+		// Release keys captured before focus changed, even inside a local form.
+		if (down.has(e.code) || (syntheticAlt && e.code.startsWith('Alt'))) onKeyUp(e);
+	}, true);
 
 	kbd.addEventListener('paste', (e) => {
 		e.preventDefault();
@@ -214,6 +258,11 @@ export function setupKeyboard(
 			tap(XK_RETURN);
 		kbd.value = '';
 	});
+	surface.addEventListener('voxl-modifier-change', e => {
+		const { key, on } = (e as CustomEvent<{ key: number; on: boolean }>).detail;
+		if (!on && [...down.values()].includes(key)) send(cmd.key(key, true));
+	});
+	surface.addEventListener('voxl-release-input', releaseAll);
 	window.addEventListener('blur', releaseAll);
 	surface.addEventListener('focus', () => kbd.focus({ preventScroll: true }));
 	if (!app.inIframe) kbd.focus({ preventScroll: true });

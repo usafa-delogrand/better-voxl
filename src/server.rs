@@ -91,13 +91,13 @@ async fn favicon_route(State(s): State<AppState>) -> Response {
         .into_response()
 }
 
-async fn index(State(s): State<AppState>) -> Response {
+async fn index(State(s): State<AppState>, session: Option<axum::Extension<crate::login::PageSession>>) -> Response {
     (
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
             (header::CACHE_CONTROL, "no-cache"),
         ],
-        s.index,
+        String::from_utf8_lossy(&s.index).replace("{{session}}", session.as_ref().map(|s| s.0.0.as_str()).unwrap_or("")),
     )
         .into_response()
 }
@@ -157,6 +157,11 @@ pub fn router(state: AppState) -> Router {
         .route("/mic.js", bundled!("mic.js"))
         .route("/favicon.ico", get(favicon_route))
         .route("/inter.woff2", asset!("inter.woff2", "font/woff2"))
+        .route("/manifest.webmanifest", asset!("manifest.webmanifest", "application/manifest+json"))
+        .route("/sw.js", asset!("sw.js", "text/javascript"))
+        .route("/icon-192.png", asset!("icon-192.png", "image/png"))
+        .route("/icon-512.png", asset!("icon-512.png", "image/png"))
+        .route("/apple-touch-icon.png", asset!("apple-touch-icon.png", "image/png"))
         .route("/healthz", get(|| async { "ok" }))
         .route("/stats", get(stats))
         .route("/ws", get(ws_handler))
@@ -203,24 +208,37 @@ async fn stats(State(s): State<AppState>) -> Response {
         .into_response()
 }
 
-async fn ws_handler(ws: WebSocketUpgrade, State(s): State<AppState>) -> Response {
+async fn ws_handler(ws: WebSocketUpgrade, State(s): State<AppState>, headers: axum::http::HeaderMap) -> Response {
+    let agent = headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("Unknown device").chars().take(256).collect::<String>();
     ws.max_message_size(64 << 20)
-        .on_upgrade(move |socket| handle_socket(socket, s))
+        .on_upgrade(move |socket| handle_socket(socket, s, agent))
 }
 
-async fn handle_socket(socket: WebSocket, s: AppState) {
+async fn handle_socket(socket: WebSocket, s: AppState, agent: String) {
     use futures_util::{SinkExt, StreamExt};
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Out>();
     let client = s.hub.add_client(tx);
+    *client.agent.lock() = agent;
     log::info!("client {} connected", client.id);
     client.send(Out::Text(s.hub.hello()));
     if let Some(c) = s.hub.cursor.lock().clone() {
         client.send(Out::Bin(c));
     }
-    let writer = tokio::spawn(async move {
+    let closing_client = client.clone();
+    let mut writer = tokio::spawn(async move {
         let dbg = std::env::var("VOXL_DEBUG_MARKER").is_ok();
-        while let Some(m) = rx.recv().await {
+        loop {
+            let m = tokio::select! {
+                biased;
+                _ = closing_client.disconnect.notified() => {
+                    let _ = tokio::time::timeout(Duration::from_secs(2), sink.send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                        code: 4001, reason: "Disconnected from session manager".into(),
+                    })))).await;
+                    break;
+                }
+                m = rx.recv() => match m { Some(m) => m, None => break },
+            };
             let t = Instant::now();
             let big = matches!(&m, Out::Bin(b) if b.len() > 2000);
             let msg = match m {
@@ -252,7 +270,11 @@ async fn handle_socket(socket: WebSocket, s: AppState) {
         })
     };
     let mut rtts: std::collections::VecDeque<u32> = Default::default();
-    while let Some(Ok(msg)) = stream.next().await {
+    loop {
+        let msg = tokio::select! {
+            _ = &mut writer => break,
+            msg = stream.next() => match msg { Some(Ok(msg)) => msg, _ => break },
+        };
         match msg {
             Message::Text(t) => handle_text(&s, &client, t.as_str(), &mut rtts),
             // Every binary message from a viewer acts on the desktop (clipboard images,
@@ -300,7 +322,7 @@ fn num<T: std::str::FromStr>(it: &mut std::str::Split<'_, char>) -> Option<T> {
 /// Commands a --read-only viewer may send: acks, video and audio on/off, keyframe
 /// requests and ping replies. Everything else acts on the desktop (input, clipboard,
 /// microphone, resizing) and is dropped. The web client keeps the same list.
-const READ_ONLY_COMMANDS: &[&str] = &["a", "v", "au", "kf", "po"];
+const READ_ONLY_COMMANDS: &[&str] = &["a", "v", "au", "kf", "po", "sessions"];
 
 fn handle_text(s: &AppState, c: &Arc<Client>, t: &str, rtts: &mut std::collections::VecDeque<u32>) {
     let (cmd, rest) = t.split_once(',').unwrap_or((t, ""));
@@ -317,6 +339,26 @@ fn handle_text(s: &AppState, c: &Arc<Client>, t: &str, rtts: &mut std::collectio
     };
     let mut it = rest.split(',');
     match cmd {
+        "sessions" => {
+            let clients = s.hub.clients.lock();
+            let sessions: Vec<_> = clients.iter().map(|client| serde_json::json!({
+                "id": client.id, "agent": *client.agent.lock(),
+                "seconds": client.joined.elapsed().as_secs(),
+                "video": client.video.load(Ordering::Relaxed),
+                "audio": client.audio.load(Ordering::Relaxed),
+            })).collect();
+            c.send(Out::Text(serde_json::json!({"t": "sessions", "selfId": c.id, "sessions": sessions}).to_string()));
+        }
+        "disconnect" => {
+            if let Ok(id) = rest.parse::<u64>() {
+                if let Some(target) = s.hub.clients.lock().iter().find(|client| client.id == id) {
+                    target.video.store(false, Ordering::Relaxed);
+                    target.audio.store(false, Ordering::Relaxed);
+                    target.disconnect.notify_one();
+                }
+                s.hub.wake();
+            }
+        }
         "a" => {
             if let Some(id) = num::<u32>(&mut it) {
                 c.on_ack(id);
@@ -481,6 +523,43 @@ mod tests {
             mic_rx.try_iter().count(),
             resized,
         )
+    }
+
+    #[tokio::test]
+    async fn session_list_and_disconnect_follow_permissions() {
+        let hub = Hub::new();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let client = hub.add_client(tx);
+        let (other_tx, _other_rx) = mpsc::unbounded_channel();
+        let other = hub.add_client(other_tx);
+        let mut state = AppState {
+            hub: hub.clone(), audio: false, epoch: Instant::now(),
+            files: Arc::new(crate::files::Files {
+                root: std::env::temp_dir(), upload: false, download: false,
+                default_dir: String::new(), max_upload_bytes: 0,
+            }),
+            mic: None, resize: false, read_only: true,
+            recorder: crate::record::Recorder::new(hub.clone(), Duration::from_secs(1)),
+            index: Bytes::new(), favicon: Bytes::new(), favicon_type: "image/x-icon",
+        };
+        let mut rtts = Default::default();
+        handle_text(&state, &client, "sessions", &mut rtts);
+        let Out::Text(reply) = rx.recv().await.unwrap() else { panic!("expected session list") };
+        let data: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(data["selfId"], client.id);
+        assert_eq!(data["sessions"].as_array().unwrap().len(), 2);
+        let command = format!("disconnect,{}", other.id);
+        handle_text(&state, &client, &command, &mut rtts);
+        assert!(tokio::time::timeout(Duration::from_millis(10), other.disconnect.notified()).await.is_err());
+        state.read_only = false;
+        other.video.store(true, Ordering::Relaxed);
+        other.audio.store(true, Ordering::Relaxed);
+        handle_text(&state, &client, &command, &mut rtts);
+        tokio::time::timeout(Duration::from_millis(100), other.disconnect.notified()).await.unwrap();
+        assert!(!other.video.load(Ordering::Relaxed));
+        assert!(!other.audio.load(Ordering::Relaxed));
+        hub.remove_client(other.id);
+        assert_eq!(hub.clients.lock().len(), 1);
     }
 
     #[test]

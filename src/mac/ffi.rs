@@ -106,7 +106,6 @@ extern "C" {
     pub fn CGCancelDisplayConfiguration(config: CGDisplayConfigRef) -> i32;
     pub static kCGDisplayShowDuplicateLowResolutionModes: CFStringRef;
     pub static kCGDisplayStreamYCbCrMatrix_ITU_R_601_4: CFStringRef;
-    pub static kCGColorSpaceSRGB: CFStringRef;
 
     pub fn CGRectMakeWithDictionaryRepresentation(d: CFDictionaryRef, rect: *mut CGRect) -> bool;
 

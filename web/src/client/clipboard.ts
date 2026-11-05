@@ -5,6 +5,7 @@ import type { App } from './app';
 export function createClipboard(app: App) {
 	let last: string | null = null;
 	let pending: string | Blob | null = null;
+	let remoteText = '';
 
 	function flush() {
 		if (
@@ -32,7 +33,10 @@ export function createClipboard(app: App) {
 
 	return {
 		flush,
+		getText: () => remoteText,
 		onRemoteText(text: string) {
+			remoteText = text;
+			app.surface.dispatchEvent(new CustomEvent('voxl-clipboard', { detail: text }));
 			if (text === last) return;
 			last = text;
 			pending = text;

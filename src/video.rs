@@ -84,16 +84,8 @@ pub fn spawn(
                 encode,
             } = p;
             if let Err(e) = capture_loop(&mut cap, cfg.clone(), hub.clone(), job_tx, ret_rx) {
-                #[cfg(target_os = "linux")]
-                let resized = cap.geometry_changed();
-                #[cfg(not(target_os = "linux"))]
-                let resized = false;
-                if resized {
-                    log::info!("capture geometry changed: {e}");
-                } else {
-                    log::error!("capture loop ended: {e}");
-                    std::process::exit(1);
-                }
+                log::error!("capture loop ended: {e}");
+                std::process::exit(1);
             }
             drop(cap);
             let _ = encode.join();
@@ -229,6 +221,8 @@ struct RateCtl {
     /// Delivery rate observed at the last congestion: the path's likely capacity.
     ceiling: f64,
     ceiling_at: Instant,
+    /// Last consumed delay sample per client; idle cached readings are not feedback.
+    feedback: std::collections::HashMap<u64, u64>,
 }
 
 /// Starting point for a new session's bitrate cap (kbit/s).
@@ -247,6 +241,7 @@ impl RateCtl {
             slow_start: true,
             ceiling: f64::MAX,
             ceiling_at: past,
+            feedback: std::collections::HashMap::new(),
         }
     }
 
@@ -255,6 +250,8 @@ impl RateCtl {
             return;
         }
         self.last_eval = Instant::now();
+        self.feedback
+            .retain(|id, _| clients.iter().any(|c| c.id == *id));
         let mut congested = false;
         let mut clear = true;
         let mut rate = f64::MAX;
@@ -263,23 +260,32 @@ impl RateCtl {
             if !c.started.load(Ordering::Relaxed) {
                 continue;
             }
-            let q = c.delay.lock().queue_ms;
-            let (_, age) = c.backlog();
+            let (q, samples) = {
+                let e = c.delay.lock();
+                (e.queue_ms, e.samples)
+            };
+            let fresh = self.feedback.insert(c.id, samples) != Some(samples) && samples != 0;
+            let (inflight, age) = c.backlog();
             let rtt = match c.min_rtt_ms.load(Ordering::Relaxed) {
                 0 => 40,
                 r => r,
             } as f64;
-            if q > 30.0 || age as f64 > rtt + 80.0 {
+            // A cached queue estimate may stay high indefinitely after one burst.
+            // Consume it once, but still react to a genuinely aging live backlog.
+            let stalled = inflight > 0 && age as f64 > rtt + 80.0;
+            if (fresh && q > 30.0) || stalled {
                 congested = true;
                 let r = c.delivered.lock().rate_bps / 1000.0;
-                if r > 0.0 {
+                if fresh && r > 0.0 {
                     rate = rate.min(r);
                 }
             }
-            if q > 15.0 {
+            if (fresh && q > 15.0) || stalled {
                 clear = false;
             }
-            delivered = delivered.max(c.delivered.lock().rate_bps / 1000.0);
+            if fresh {
+                delivered = delivered.max(c.delivered.lock().rate_bps / 1000.0);
+            }
         }
         let now = Instant::now();
         if congested && self.last_dec.elapsed() >= Duration::from_millis(300) {
@@ -489,9 +495,6 @@ fn capture_loop(
             return Ok(());
         }
         cap.pump()?;
-        if cap.needs_rebuild() {
-            return Ok(());
-        }
         note_changes(cap, &hub);
         hub.drain_wake();
         let snaps = std::mem::take(&mut *hub.snapshots.lock());
@@ -1203,6 +1206,10 @@ fn marker_probe(buf: &[u8], stride: usize, what: &str) -> i64 {
     log::info!("marker {} frame {} age {} ms", what, v >> 24, now - ms);
     ms
 }
+
+#[cfg(test)]
+#[path = "video/rate_feedback_tests.rs"]
+mod rate_feedback_tests;
 
 fn marker_age(ms: i64) -> i64 {
     let now = (std::time::SystemTime::now()

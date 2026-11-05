@@ -7,6 +7,17 @@ display, a Mac's screen or a Windows desktop as H.264 over a WebSocket to a smal
 client that decodes with WebCodecs, with input, clipboard, audio, microphone, file and
 folder transfer and dynamic resolution.
 
+## Mobile app and touch controls
+
+Voxl can be installed as a standalone PWA. On iPhone/iPad, open the stream directly
+in Safari and use **Share → Add to Home Screen**. Coarse-pointer devices default to
+relative **Trackpad** mode: swipe to move, tap to click, hold to drag, and use two
+fingers to scroll or right-click. The mobile toolbar also includes explicit mouse
+buttons, latched dragging, zoom, and keyboard controls.
+
+See [MOBILE-PWA.md](MOBILE-PWA.md) for gestures, installation, security behavior,
+compatibility notes, and regression tests.
+
 ## Quick start
 
 ```sh
@@ -30,27 +41,25 @@ Cells are FPS (worst second), then latency p50/p99 from the content being drawn 
 frame being decoded. voxl's column is its best run of each test. To reproduce, see
 [`bench/`](bench/README.md).
 
-| Test                           | voxl                       | [selkies](https://github.com/selkies-project/selkies) | [KasmVNC](https://github.com/kasmtech/KasmVNC) | [Neko](https://github.com/m1k1o/neko) | [Neko, tuned](https://github.com/m1k1o/neko) | [Sunshine](https://github.com/LizardByte/Sunshine) | [Sunshine, tuned](https://github.com/LizardByte/Sunshine) | [noVNC](https://github.com/novnc/noVNC) | [Daytona](https://www.daytona.io) |
-| ------------------------------ | -------------------------- | ----------------------------------------------------- | ---------------------------------------------- | ------------------------------------- | -------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------- | --------------------------------------- | --------------------------------- |
-| Chromium scroll, LAN           | **60.1 (59.7), 55/60 ms**  | 56.8 (54.0), 85/106 ms                                | 51.7 (39.5), 99/135 ms                         | 25.0 (23.7), 156/217 ms               | 53.9 (49.9), 128/155 ms                      | 28.3 (23.5), 88/115 ms                             | 48.5 (44.0), 94/117 ms                                    | 6.7 (6.3), 198/301 ms                   | 5.2 (2.5), 306/713 ms             |
-| Scroll, 10 Mbps / 40 ms RTT    | **60.0 (59.4), 82/94 ms**  | 55.6 (47.7), 152/261 ms                               | 8.3 (7.4), 229/249 ms                          | 24.6 (14.9), 221/737 ms               | 46.3 (40.3), 606/831 ms                      | 27.9 (25.3), 160/179 ms                            | 51.3 (47.5), 147/162 ms                                   | 2.6 (2.4), 426/678 ms                   | 1.9 (1.6), 617/798 ms             |
-| Scroll, 5 Mbps / 60 ms RTT     | **60.1 (59.7), 99/109 ms** | 27.9 (19.6), 2.7/3.7 s                                | 4.9 (3.6), 306/415 ms                          | 21.7 (3.8), 1.2/3.6 s                 | stalls                                       | 29.6 (21.9), 178/207 ms                            | 44.5 (35.2), 164/191 ms                                   | 1.6 (1.4), 637/937 ms                   | 1.1 (0.9), 1.1/1.2 s              |
-| 1080p animation, LAN           | **60.1 (59.9), 12/16 ms**  | 58.7 (55.9), 31/48 ms                                 | 56.7 (51.6), 51/82 ms                          | 24.8 (23.6), 122/202 ms               | 55.6 (50.0), 54/82 ms                        | 27.1 (22.7), 69/91 ms                              | 45.6 (40.3), 42/57 ms                                     | 7.7 (7.2), 149/210 ms                   | 10.5 (8.8), 138/209 ms            |
-| Animation, 10 Mbps / 40 ms RTT | **60.1 (59.5), 46/71 ms**  | 39.3 (31.8), 2.3/3.1 s                                | 52.9 (49.2), 76/115 ms                         | 25.1 (9.1), 295/962 ms                | 33.3 (25.4), 4.0/7.1 s                       | 29.7 (26.0), 108/125 ms                            | 51.1 (44.6), 86/107 ms                                    | 5.8 (5.2), 160/226 ms                   | 7.4 (7.0), 154/213 ms             |
-| Animation, 5 Mbps / 60 ms RTT  | **60.0 (58.8), 66/92 ms**  | 18.4 (15.3), 2.2/4.3 s                                | 34.1 (26.4), 104/156 ms                        | 15.2 (8.6), 5.0/9.4 s                 | stalls                                       | 34.7 (25.4), 123/143 ms                            | 45.5 (40.9), 114/131 ms                                   | 5.1 (4.7), 174/240 ms                   | 5.8 (4.4), 189/252 ms             |
-| Full-screen animation, LAN     | **59.8 (54.0), 18/25 ms**  | 54.8 (49.8), 54/79 ms                                 | 34.2 (32.5), 83/102 ms                         | 22.7 (18.0), 2.9/3.3 s                | 54.6 (49.7), 54/79 ms                        | 24.9 (21.7), 73/98 ms                              | 47.4 (43.4), 46/65 ms                                     | 5.9 (5.2), 184/279 ms                   | 9.1 (7.2), 154/247 ms             |
+| Test                           | voxl                       | [selkies](https://github.com/selkies-project/selkies) | [KasmVNC](https://github.com/kasmtech/KasmVNC) | [Neko](https://github.com/m1k1o/neko) | [Neko, tuned](https://github.com/m1k1o/neko) | [noVNC](https://github.com/novnc/noVNC) | [Daytona](https://www.daytona.io) |
+| ------------------------------ | -------------------------- | ----------------------------------------------------- | ---------------------------------------------- | ------------------------------------- | -------------------------------------------- | --------------------------------------- | --------------------------------- |
+| Chromium scroll, LAN           | **60.1 (59.7), 55/60 ms**  | 56.8 (54.0), 85/106 ms                                | 51.7 (39.5), 99/135 ms                         | 25.0 (23.7), 156/217 ms               | 53.9 (49.9), 128/155 ms                      | 6.7 (6.3), 198/301 ms                   | 5.2 (2.5), 306/713 ms             |
+| Scroll, 10 Mbps / 40 ms RTT    | **60.0 (59.4), 82/94 ms**  | 55.6 (47.7), 152/261 ms                               | 8.3 (7.4), 229/249 ms                          | 24.6 (14.9), 221/737 ms               | 46.3 (40.3), 606/831 ms                      | 2.6 (2.4), 426/678 ms                   | 1.9 (1.6), 617/798 ms             |
+| Scroll, 5 Mbps / 60 ms RTT     | **60.1 (59.7), 99/109 ms** | 27.9 (19.6), 2.7/3.7 s                                | 4.9 (3.6), 306/415 ms                          | 21.7 (3.8), 1.2/3.6 s                 | stalls                                       | 1.6 (1.4), 637/937 ms                   | 1.1 (0.9), 1.1/1.2 s              |
+| 1080p animation, LAN           | **60.1 (59.9), 12/16 ms**  | 58.7 (55.9), 31/48 ms                                 | 56.7 (51.6), 51/82 ms                          | 24.8 (23.6), 122/202 ms               | 55.6 (50.0), 54/82 ms                        | 7.7 (7.2), 149/210 ms                   | 10.5 (8.8), 138/209 ms            |
+| Animation, 10 Mbps / 40 ms RTT | **60.1 (59.5), 46/71 ms**  | 39.3 (31.8), 2.3/3.1 s                                | 52.9 (49.2), 76/115 ms                         | 25.1 (9.1), 295/962 ms                | 33.3 (25.4), 4.0/7.1 s                       | 5.8 (5.2), 160/226 ms                   | 7.4 (7.0), 154/213 ms             |
+| Animation, 5 Mbps / 60 ms RTT  | **60.0 (58.8), 66/92 ms**  | 18.4 (15.3), 2.2/4.3 s                                | 34.1 (26.4), 104/156 ms                        | 15.2 (8.6), 5.0/9.4 s                 | stalls                                       | 5.1 (4.7), 174/240 ms                   | 5.8 (4.4), 189/252 ms             |
+| Full-screen animation, LAN     | **59.8 (54.0), 18/25 ms**  | 54.8 (49.8), 54/79 ms                                 | 34.2 (32.5), 83/102 ms                         | 22.7 (18.0), 2.9/3.3 s                | 54.6 (49.7), 54/79 ms                        | 5.9 (5.2), 184/279 ms                   | 9.1 (7.2), 154/247 ms             |
 
-| Server CPU, X server + streamer (cores)                   | idle | 1080p animation  | scroll           | full screen      |
-| --------------------------------------------------------- | ---- | ---------------- | ---------------- | ---------------- |
-| voxl                                                      | 0.00 | 1.39             | 1.33             | 1.68             |
-| [selkies](https://github.com/selkies-project/selkies)     | 1.29 | not measured     | 1.54             | 1.80             |
-| [KasmVNC](https://github.com/kasmtech/KasmVNC)            | 0.00 | 1.97             | 2.07             | 1.82 (at 34 FPS) |
-| [Neko](https://github.com/m1k1o/neko)                     | 1.63 | 2.50 (at 25 FPS) | 2.20 (at 25 FPS) | 2.46 (at 23 FPS) |
-| [Neko](https://github.com/m1k1o/neko), tuned              | 1.90 | 2.28             | 2.30             | 2.52             |
-| [Sunshine](https://github.com/LizardByte/Sunshine)        | 2.10 | 2.34 (at 27 FPS) | 2.24 (at 28 FPS) | 2.35 (at 25 FPS) |
-| [Sunshine](https://github.com/LizardByte/Sunshine), tuned | 2.84 | 3.07 (at 46 FPS) | 3.14 (at 49 FPS) | 3.22 (at 47 FPS) |
-| [noVNC](https://github.com/novnc/noVNC)                   | 0.01 | 0.55 (at 8 FPS)  | 0.58 (at 7 FPS)  | 0.64 (at 6 FPS)  |
-| [Daytona](https://www.daytona.io) (1 CPU limit)           | 0.02 | 0.82 (at 10 FPS) | 0.53 (at 5 FPS)  | 0.81 (at 9 FPS)  |
+| Server CPU, X server + streamer (cores)               | idle | 1080p animation  | scroll           | full screen      |
+| ----------------------------------------------------- | ---- | ---------------- | ---------------- | ---------------- |
+| voxl                                                  | 0.00 | 1.39             | 1.33             | 1.68             |
+| [selkies](https://github.com/selkies-project/selkies) | 1.29 | not measured     | 1.54             | 1.80             |
+| [KasmVNC](https://github.com/kasmtech/KasmVNC)        | 0.00 | 1.97             | 2.07             | 1.82 (at 34 FPS) |
+| [Neko](https://github.com/m1k1o/neko)                 | 1.63 | 2.50 (at 25 FPS) | 2.20 (at 25 FPS) | 2.46 (at 23 FPS) |
+| [Neko](https://github.com/m1k1o/neko), tuned          | 1.90 | 2.28             | 2.30             | 2.52             |
+| [noVNC](https://github.com/novnc/noVNC)               | 0.01 | 0.55 (at 8 FPS)  | 0.58 (at 7 FPS)  | 0.64 (at 6 FPS)  |
+| [Daytona](https://www.daytona.io) (1 CPU limit)       | 0.02 | 0.82 (at 10 FPS) | 0.53 (at 5 FPS)  | 0.81 (at 9 FPS)  |
 
 - **selkies:** [selkies](https://github.com/selkies-project/selkies) with picom running.
 - **KasmVNC:** 1.4.0 with a 60 FPS cap, JPEG/WebP quality 8–9 and video mode, no
@@ -60,17 +69,6 @@ frame being decoded. voxl's column is its best run of each test. To reproduce, s
   `zerolatency` at up to 30 Mbps, like voxl. Neither adapts its bitrate (Neko's
   estimator is off by default), so on slow links frames queue up; "stalls" means no
   frame arrived in 20 s.
-- **Sunshine:** [Sunshine](https://github.com/LizardByte/Sunshine) 2025.628 streaming to
-  Moonlight ([moonlight-embedded](https://github.com/moonlight-stream/moonlight-embedded)
-  2.7, patched to hand frames to the benchmark client). Sunshine is built around GPU
-  capture and encoding; without a GPU it falls back to copying the X11 screen and x264,
-  so these numbers show it on a GPU-less VM like the other tests, not on the gaming PC
-  it's made for. **Sunshine** runs its defaults (`superfast` on 2 threads) at Moonlight's
-  default 40 Mbps; **Sunshine, tuned** uses `ultrafast` on 4 threads at 30 Mbps, like
-  voxl (8 or 16 threads did no better). Neither reaches 60 FPS on this VM, and it keeps
-  working while the screen is still (its idle CPU). Moonlight doesn't adapt its bitrate,
-  so on slow links it's set to 80% of the link. Its CPU was measured in a later session,
-  where voxl used 1.74, 1.65 and 1.99 cores on the same workloads.
 - **noVNC:** x11vnc and noVNC as [E2B Desktop](https://github.com/e2b-dev/desktop)
   and Daytona ship them (`-forever -wait 50 -shared`, Tight encoding). x11vnc polls the
   screen, which caps it at 6–8 FPS.
@@ -79,8 +77,7 @@ frame being decoded. voxl's column is its best run of each test. To reproduce, s
   The workloads run inside the sandbox, sharing its CPU, and slow links are added on top
   of that internet path.
 - **Links:** a bottleneck with a deep queue: a TCP proxy for the WebSocket servers, and
-  `tc netem` for Neko's WebRTC media and Sunshine's video (UDP). None of them drop
-  packets, where UDP with error correction would have the edge.
+  `tc netem` for Neko's WebRTC media (UDP).
 
 ## Usage
 
@@ -284,48 +281,12 @@ WebRTC's jitter buffer, and voxl runs its own rate control, which keeps latency 
 clean link. The trade-off is TCP: on a link that drops packets (bad Wi-Fi, a weak mobile
 signal) a lost packet holds up the frames behind it, where WebRTC can skip ahead.
 
-**How is it different from Moonlight and Sunshine?** They're for playing games on your
-own GPU machine through the Moonlight app, and for that they're the better fit. voxl was
-built for things like software factories that use headless VMs and sandboxes (CI,
-computer-use agents), usually on Xvfb with no GPU. It streams them to a plain browser tab
-over one WebSocket and has APIs for agents.
-
-**How is it different from RustDesk?** RustDesk is an open-source alternative to
-TeamViewer and AnyDesk, for reaching your own computers or helping someone with theirs:
-you install its app on both ends, desktop or phone, and the two find each other through
-an ID server, then connect directly or through a relay. For that it's the better fit,
-and it also shares Wayland desktops (experimentally) and Android phones, which voxl
-doesn't. voxl is for desktops on servers, VMs and sandboxes: it's one process that
-serves its own page, so there's nothing to install on the viewing side and no ID or
-relay server to run. The stream goes wherever a URL does, can be embedded in another
-page and comes with the APIs agents use. RustDesk has a web client too, but it still
-goes through the ID and relay servers, and the self-hosted one comes with RustDesk
-Server Pro.
-
 **Why doesn't the stream load at `http://<ip>:6901`?** Browsers only allow WebCodecs on
 HTTPS pages and on localhost. To watch from another machine, put voxl behind a TLS proxy
 (Caddy, Cloudflare Tunnel, `tailscale serve`) and name its host with `--allowed-hosts`,
 or forward the port over SSH and open `localhost`.
 
-**Is it safe to expose?** voxl asks for a password by default but serves plain HTTP, so
-put it behind TLS away from localhost. See [SECURITY.md](SECURITY.md).
-
-**Which browsers and devices work?** Any browser with WebCodecs, on an HTTPS page or
-localhost:
-
-| Browser                                                                | Works |
-| ---------------------------------------------------------------------- | ----- |
-| Chrome, Edge and other Chromium browsers 94+, desktop and Android      | Yes   |
-| Firefox 130+, desktop                                                  | Yes   |
-| Safari 16.4+ and any browser on iPhone or iPad (sound needs Safari 26) | Yes   |
-| Firefox for Android                                                    | No    |
-
-Phones and tablets get touch input and an on-screen keyboard.
-
-**Wayland?** Not yet; on Linux voxl streams X11 displays, Xvfb included. The virtual
-desktops voxl is built for run on Xvfb (E2B's and Daytona's do too), and X11 lets voxl
-capture them without a permission prompt, with damage events that keep a still screen at
-no CPU and power `/wait`. Wayland support is being worked on.
+**Wayland?** Not yet. On Linux voxl streams X11 displays, Xvfb included.
 
 **Does it use the GPU?** Not yet. voxl encodes H.264 on the CPU with x264: 1.3–1.7 cores
 for a busy 2560x1600 desktop, X server included (see the CPU table above). Hardware

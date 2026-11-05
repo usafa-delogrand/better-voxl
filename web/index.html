@@ -4,7 +4,14 @@
 		<meta charset="utf-8" />
 		<meta
 			name="viewport"
-			content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+			content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content" />
+		<meta name="theme-color" content="#101923" />
+		<meta name="voxl-session" content="{{session}}" />
+		<meta name="mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+		<link rel="manifest" href="manifest.webmanifest" />
+		<link rel="apple-touch-icon" href="apple-touch-icon.png" />
 		<!-- The server fills in the title (index_html in src/server.rs). -->
 		<meta name="application-name" content="{{title}}" />
 		<meta name="apple-mobile-web-app-title" content="{{title}}" />
@@ -27,6 +34,11 @@
 			}
 			/* Dark theme tokens from the Tembo UI package (packages/ui/src/styles/globals.css). */
 			:root {
+				--safe-top: env(safe-area-inset-top, 0px);
+				--safe-bottom: env(safe-area-inset-bottom, 0px);
+				--safe-left: env(safe-area-inset-left, 0px);
+				--safe-right: env(safe-area-inset-right, 0px);
+				color-scheme: dark;
 				--surface-raised: #212121;
 				--surface-secondary: #383838;
 				--text-title: #ffffffeb;
@@ -76,7 +88,13 @@
 				justify-content: center;
 				-webkit-font-smoothing: antialiased;
 			}
+			#trackpad-space {
+				position: fixed; inset: 0; z-index: 0;
+				touch-action: none; user-select: none; -webkit-user-select: none;
+				-webkit-touch-callout: none;
+			}
 			#surface {
+				z-index: 1;
 				position: relative;
 				outline: none;
 				touch-action: none;
@@ -130,6 +148,7 @@
 
 			/* Toolbar: ghost icon buttons in a frosted bar, like the app's tooltip surface. */
 			#tools {
+				color: #f5f7fa;
 				position: fixed;
 				top: 8px;
 				right: 8px;
@@ -149,13 +168,163 @@
 				backdrop-filter: blur(30px);
 				-webkit-backdrop-filter: blur(30px);
 			}
-			#tools.show {
+			#tools.show, #tools.i3-open, #tools:focus-within {
 				opacity: 1;
 				pointer-events: auto;
 			}
 			#tools.touch {
-				top: auto;
-				bottom: 12px;
+				/* Avoid live backdrop readbacks while Safari presents the stream. */
+				background: var(--surface-raised);
+				backdrop-filter: none;
+				-webkit-backdrop-filter: none;
+				box-shadow: 0 3px 10px #0006;
+				top: calc(var(--viewport-top, 0px) + max(8px, env(safe-area-inset-top, 0px)));
+				bottom: auto;
+				right: auto;
+				left: calc(var(--viewport-left, 0px) + (var(--viewport-width, 100vw) + env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)) / 2);
+				transform: translateX(-50%);
+				max-width: calc(var(--viewport-width, 100vw) - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 24px);
+				max-height: min(240px, max(52px, calc(var(--viewport-height, 100dvh) - env(safe-area-inset-top, 0px) - var(--dock-safe-bottom, env(safe-area-inset-bottom, 0px)) - 16px)));
+				flex-wrap: wrap;
+				justify-content: center;
+			}
+			[hidden] { display: none !important; }
+			.touch-only { display: none !important; }
+			#tools.touch .touch-only { display: inline-grid !important; }
+			#tools .text-button { width: auto; min-width: 44px; padding: 0 10px; font: 600 12px var(--font); color: #f5f7fa; -webkit-text-fill-color: currentColor; }
+			#tools .on { background: var(--accent-subtle); color: #88c0d0; }
+			#touch-cursor {
+				display: none; position: absolute; left: 50%; top: 50%; z-index: 2;
+				width: 18px; height: 24px; pointer-events: none;
+				/* Standard arrow; its tip, not its center, marks the click position. */
+				transform: translate(-1.5px, -1.5px);
+				background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 32'%3E%3Cpath d='M2 2v23l6-6 5 11 5-3-5-10h9Z' fill='white' stroke='%23101923' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+			}
+			#touch-cursor.visible { display: block; }
+			#tools.read-only .remote-input { display: none !important; }
+			#joystick-panel { display: none; }
+			#tools.touch #joystick-panel:not([hidden]) {
+				display: flex; flex-basis: 100%; align-items: center; justify-content: center;
+				gap: 12px; padding: 4px 8px; box-sizing: border-box;
+				border-bottom: 1px solid #ffffff1a;
+			}
+			.stick-actions { display: grid; grid-template-columns: repeat(2, minmax(64px, 1fr)); gap: 4px; }
+			#tools #joystick-panel .stick-actions .ib { width: 100%; }
+			#joystick-panel.stick-collapsed .stick-actions { flex: 1; grid-template-columns: repeat(4, minmax(44px, 1fr)); }
+			#tools.mic-on #tab-more::after { content: ' ●'; color: #f15555; }
+			.mouse-stick {
+				position: relative; flex: none; width: 76px; height: 76px; border-radius: 50%;
+				touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+				background: radial-gradient(circle, #273b50 0 18%, #172331 19% 60%, #30455c 61% 63%, #172331 64%);
+				border: 1px solid #88c0d066; box-shadow: inset 0 2px 12px #0008;
+				cursor: grab; outline-offset: 4px;
+			}
+			.mouse-stick::before, .mouse-stick::after {
+				content: ''; position: absolute; background: #88c0d033; pointer-events: none;
+			}
+			.mouse-stick::before { width: 1px; height: 56px; left: 50%; top: 10px; }
+			.mouse-stick::after { height: 1px; width: 56px; top: 50%; left: 10px; }
+			.stick-thumb {
+				position: absolute; z-index: 1; width: 30px; height: 30px; border-radius: 50%;
+				left: calc(50% - 15px); top: calc(50% - 15px); pointer-events: none;
+				transform: translate(var(--stick-x, 0px), var(--stick-y, 0px));
+				background: linear-gradient(145deg, #d3e7f0, #88c0d0); border: 1px solid #e5f3ff;
+				box-shadow: 0 3px 10px #0009; transition: background 0.15s;
+			}
+			.mouse-stick.active { cursor: grabbing; border-color: #bdeaff; }
+			.mouse-stick.active .stick-thumb { background: #ddf5ff; }
+			#floating-joystick { position: fixed; z-index: 2; pointer-events: auto; }
+			#tools.i3-open { width: min(360px, calc(100vw - 24px)); flex-wrap: wrap; }
+			#tools.controls-ready { width: min(360px, calc(100vw - 24px)); flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
+			#tools.touch.controls-ready { overflow: hidden; }
+			#tools.touch #dock-bar { flex-shrink: 0; }
+			#tools.touch [role="tabpanel"] { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+			#dock-bar { display: flex; align-items: stretch; border-bottom: 1px solid #ffffff1a; }
+			#control-tabs { display: flex; flex: 1; min-width: 0; gap: 2px; padding: 3px; }
+			#dock-toggle { flex: 0 0 44px; width: 44px; min-width: 44px; min-height: 44px; padding: 0; display: grid; place-items: center; box-sizing: border-box; border: 0; border-radius: 8px; color: #fff; background: transparent; }
+			#dock-toggle svg { display: block; width: 22px; height: 22px; pointer-events: none; }
+			#dock-toggle:hover { background: #ffffff14; }
+			#tools.controls-ready.dock-collapsed { box-sizing: border-box; width: 52px; height: 52px; min-width: 52px; min-height: 52px; max-width: 52px; max-height: 52px; padding: 0; gap: 0; display: block; opacity: 1; pointer-events: auto; }
+			#tools.dock-collapsed #dock-bar { box-sizing: border-box; width: 100%; height: 100%; display: block; border-radius: inherit; }
+			#tools.dock-collapsed #dock-toggle { box-sizing: border-box; width: 100%; height: 100%; min-height: 0; min-width: 0; display: flex; align-items: center; justify-content: center; margin: 0; border-radius: inherit; appearance: none; -webkit-appearance: none; background: transparent; }
+			#tools.dock-collapsed #dock-toggle:hover { background: transparent; }
+			#tools.dock-collapsed > :not(#dock-bar), #tools.dock-collapsed #control-tabs { display: none !important; }
+			#tools.dock-collapsed #dock-bar { border-bottom: 0; }
+			#control-tabs button { flex: 1; min-height: 44px; padding: 6px; border: 0; border-radius: 7px; background: transparent; color: #d6e1ea; font: 600 11px var(--font); white-space: nowrap; }
+			#control-tabs button[aria-selected="true"] { background: #88c0d026; color: #fff; }
+			#tools:not(.touch) #tab-mouse { display: none; }
+			#controls-mouse:not([hidden]), #controls-more:not([hidden]) { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; padding: 3px; }
+			#controls-sessions { padding: 10px; max-height: min(360px, calc(var(--viewport-height, 100dvh) - 100px)); overflow-y: auto; overscroll-behavior: contain; font: 400 13px/1.5 var(--font); color: #e5edf5; text-align: left; }
+			.session-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #ffffff1a; }
+			.session-row > div { flex: 1; min-width: 0; }
+			.session-row strong { display: block; font: 600 13px/1.5 var(--font); font-variant-numeric: tabular-nums; }
+			.session-row small { display: block; margin-top: 3px; font: 400 12px/1.5 var(--font); color: #b8c8d8; overflow-wrap: anywhere; }
+			#tools .session-row .ib { width: auto; padding: 0 10px; flex-shrink: 0; font: 600 12px/1.4 var(--font); color: #efa0a0; }
+			#session-notice { margin: 12px 0 2px; font: 400 12px/1.5 var(--font); color: #b8c8d8; }
+			#controls-keys { padding: 6px; max-height: min(420px, calc(var(--viewport-height, 100dvh) - 80px)); overflow-y: auto; overscroll-behavior: contain; }
+			.keys-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; }
+			.modifier-row, .clipboard-row { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 4px; }
+			.arrow-row { margin-bottom: 4px; }
+			#tools #controls-keys .arrow-row .ib { font-size: 20px; }
+			#tools .keys-grid .text-button { padding: 0 3px; }
+			#tools.modifiers-on #tab-keys::after { content: ' •'; color: #88c0d0; }
+			#tools.modifiers-on.dock-collapsed #dock-toggle { color: #88c0d0; }
+			#tools.touch .i3-caption, #tools.touch .i3-heading > span { display: none; }
+			#tools .keys-grid .ib { width: 100%; min-height: 44px; min-width: 0; padding: 0 2px; font-size: 11px; }
+			#keyboard-slot { display: grid; place-items: center; }
+			.clipboard-label { display: block; font: 600 12px var(--font); margin: 12px 0 5px; color: #f5f7fa; }
+			.clipboard-label span { color: #b3c3d2; font-weight: 400; }
+			.clipboard-text { display: block; box-sizing: border-box; width: 100%; min-height: 60px; resize: vertical; font: 16px/1.4 var(--font); color: #fff; background: #101923; border: 1px solid #88c0d055; border-radius: 8px; padding: 8px; user-select: text; -webkit-user-select: text; }
+			.clipboard-section { margin-top: 6px; border: 1px solid #ffffff1a; border-radius: 8px; padding: 0 8px; }
+			.clipboard-section summary { min-height: 44px; display: list-item; align-content: center; cursor: pointer; color: #f5f7fa; font: 600 12px/1.5 var(--font); }
+			.clipboard-section summary span { color: #b3c3d2; font-weight: 400; margin-left: 6px; font-size: 11px; }
+			.clipboard-section[open] { padding-bottom: 8px; }
+			#tools .clipboard-section > .ib { min-height: 44px; margin-top: 4px; }
+			#tools .i3-close { min-height: 44px; width: 100%; margin: 0 0 6px; color: #ffb4b4; background: #b33c3c22; }
+			#clipboard-status { font: 11px/1.5 var(--font); color: #d6e1ea; margin: 8px 0 2px; }
+			#clipboard-status:not(.error) { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+			#tools #controls-keys > .ib { min-height: 44px; margin-top: 4px; }
+			@media (min-width: 700px) {
+				#tools.touch.controls-ready:not(.dock-collapsed) { width: min(760px, calc(100vw - 32px)); }
+				#tools.touch #controls-mouse:not([hidden]) { flex-wrap: nowrap; align-items: center; }
+				#tools.touch #joystick-panel:not([hidden]) { flex-basis: auto; flex-shrink: 0; border-bottom: 0; }
+				#tools.touch #controls-keys:not([hidden]) { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: min-content; align-content: start; gap: 4px; }
+				#tools.touch .modifier-row { grid-column: 1; }
+				#tools.touch .arrow-row { grid-column: 2; }
+				#tools.touch .clipboard-row, #tools.touch #clipboard-status { grid-column: 1 / -1; }
+				#tools.touch .clipboard-section { margin-top: 0; min-width: 0; }
+				#tools.touch #i3-panel:not([hidden]) { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-auto-rows: min-content; align-content: start; gap: 4px; }
+				#tools.touch #i3-panel .i3-close { grid-column: 1 / -1; min-height: 44px; margin: 0; }
+				#tools.touch #i3-panel .i3-grid { display: contents; }
+				#tools.touch #i3-panel .i3-grid .ib { width: 100%; }
+			}
+			#i3-panel:not([hidden]) {
+				flex-basis: 100%; padding: 6px; box-sizing: border-box;
+				max-height: min(300px, calc(var(--viewport-height, 100dvh) - 80px)); overflow-y: auto; overscroll-behavior: contain;
+				border-bottom: 1px solid #ffffff1a; color: #f5f7fa; scrollbar-width: thin;
+			}
+			.i3-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+			#tools .i3-grid .ib { width: 100%; min-height: 44px; min-width: 0; padding: 0 2px; font-size: 11px; background: #ffffff0a; }
+			#tools .i3-grid .ib:hover { background: #ffffff1f; }
+			.i3-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0 6px; font: 600 12px var(--font); }
+			.i3-caption { font: 11px var(--font); color: #c3d2e0; margin: 10px 0 5px; }
+			#tools.remote-mac #i3-btn, #tools.remote-mac #i3-panel { display: none !important; }
+			#tools.touch.keyboard-open { --dock-safe-bottom: 0px; max-height: min(180px, max(52px, calc(var(--viewport-height, 100dvh) - env(safe-area-inset-top, 0px) - 16px))); }
+			#tools.touch.i3-active:not(.dock-collapsed) { max-height: min(300px, max(52px, calc(var(--viewport-height, 100dvh) - env(safe-area-inset-top, 0px) - var(--dock-safe-bottom, env(safe-area-inset-bottom, 0px)) - 16px))); }
+			#tools.touch.i3-active.keyboard-open:not(.dock-collapsed) { max-height: min(230px, max(52px, calc(var(--viewport-height, 100dvh) - env(safe-area-inset-top, 0px) - 16px))); }
+			#tools.touch.keyboard-open.dock-collapsed { max-height: 52px; }
+			#tools.touch.keyboard-open #joystick-panel .stick-actions { flex: 1; grid-template-columns: repeat(4, minmax(44px, 1fr)); }
+			@media (prefers-reduced-motion: reduce) {
+				#tools, .ib, .stick-thumb { transition: none; }
+			}
+			@media (pointer: coarse) {
+				body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+				#files { max-height: calc(100dvh - 130px); top: max(8px, env(safe-area-inset-top, 0px)); }
+				#files .ib, #files .btn { min-width: 44px; min-height: 44px; }
+				#files header { height: auto; min-height: 52px; }
+				.f-row { min-height: 44px; }
+				.f-row .f-dl { display: inline-flex; }
+				.f-row .f-dl + .f-meta { display: none; }
 			}
 			.ib {
 				width: 28px;
@@ -187,9 +356,11 @@
 				height: 24px;
 			}
 			#tools.touch .ib {
-				width: 40px;
-				height: 40px;
+				min-width: 44px;
+				width: 44px;
+				height: 44px;
 			}
+			#tools.touch .text-button { width: auto; }
 			#tools.touch .ib svg.i {
 				width: 20px;
 				height: 20px;
@@ -592,6 +763,7 @@
 		</style>
 	</head>
 	<body>
+		<div id="trackpad-space" role="region" aria-label="Background trackpad: swipe to move cursor, tap to click, two fingers to scroll"></div>
 		<div id="surface" tabindex="0"><canvas id="screen"></canvas></div>
 		<textarea
 			id="kbd"
@@ -601,7 +773,97 @@
 			spellcheck="false"
 			tabindex="-1"
 			aria-hidden="true"></textarea>
-		<div id="tools">
+		<div id="tools" role="toolbar" aria-label="Remote desktop controls">
+			<div id="dock-bar"><div id="control-tabs" role="tablist" aria-label="Control categories">
+				<button id="tab-mouse" type="button" role="tab" data-control-tab="mouse" aria-controls="controls-mouse">Mouse</button>
+				<button id="tab-i3" type="button" role="tab" data-control-tab="i3" aria-controls="i3-panel">i3</button>
+				<button id="tab-keys" type="button" role="tab" data-control-tab="keys" aria-controls="controls-keys">Keys</button>
+				<button id="tab-sessions" type="button" role="tab" data-control-tab="sessions" aria-controls="controls-sessions">Sessions –</button>
+				<button id="tab-more" type="button" role="tab" data-control-tab="more" aria-controls="controls-more">More</button>
+			</div><button id="dock-toggle" type="button" aria-label="Collapse controls" aria-expanded="true" title="Collapse controls">⌄</button></div>
+			<div id="controls-mouse" hidden></div>
+			<div id="controls-more" hidden></div>
+			<div id="controls-sessions" hidden>
+				<button id="sessions-refresh" class="ib text-button" type="button">Refresh</button>
+				<div id="session-list" aria-label="Active streaming sessions"></div>
+				<p id="session-notice" role="status">Connecting…</p>
+			</div>
+			<div id="controls-keys" hidden>
+				<div class="keys-grid modifier-row remote-input">
+					<button class="ib text-button" type="button" data-modifier="ctrl" aria-pressed="false">Ctrl</button>
+					<button class="ib text-button" type="button" data-modifier="alt" aria-pressed="false">Alt</button>
+					<button class="ib text-button" type="button" data-modifier="super" aria-pressed="false">Super</button>
+					<button class="ib text-button" type="button" data-remote-key="65307">Esc</button>
+					<span id="keyboard-slot"></span>
+				</div>
+				<div class="keys-grid arrow-row remote-input" role="group" aria-label="Arrow keys">
+					<button class="ib text-button" type="button" data-remote-key="65361" aria-label="Arrow left">←</button>
+					<button class="ib text-button" type="button" data-remote-key="65362" aria-label="Arrow up">↑</button>
+					<button class="ib text-button" type="button" data-remote-key="65364" aria-label="Arrow down">↓</button>
+					<button class="ib text-button" type="button" data-remote-key="65363" aria-label="Arrow right">→</button>
+				</div>
+				<div class="keys-grid clipboard-row remote-input">
+					<button id="terminal-clipboard-btn" class="ib text-button" type="button" aria-pressed="false" title="Use Ctrl+Shift+C/V for terminal copy and paste" aria-label="Terminal clipboard mode">&gt;_</button>
+					<button id="copy-selection-btn" class="ib text-button" type="button">Copy</button>
+					<button id="cut-selection-btn" class="ib text-button" type="button">Cut</button>
+					<button id="paste-remote-btn" class="ib text-button" type="button" title="Paste current VM clipboard">Paste VM</button>
+					<button id="paste-device-btn" class="ib text-button" type="button" title="Read this device's clipboard and paste into the VM" aria-label="Paste device clipboard into VM">Device</button>
+				</div>
+				<details id="clipboard-to-vm" class="clipboard-section remote-input">
+					<summary>Device → VM</summary>
+					<textarea id="clipboard-local" aria-label="Text to paste into the VM" class="clipboard-text" rows="2" placeholder="Paste text" autocapitalize="off" spellcheck="false"></textarea>
+					<button id="send-clipboard-btn" class="ib text-button" type="button">Send &amp; paste</button>
+				</details>
+				<details id="clipboard-from-vm" class="clipboard-section">
+					<summary>VM → device</summary>
+					<textarea id="clipboard-remote" aria-label="Copied remote text" class="clipboard-text" rows="2" readonly placeholder="Copied text"></textarea>
+					<button id="copy-device-btn" class="ib text-button" type="button">Copy to device</button>
+				</details>
+				<p id="clipboard-status" role="status" aria-live="polite"></p>
+			</div>
+			<div id="joystick-panel" class="remote-input">
+				<div id="stick-actions" class="stick-actions"></div>
+			</div>
+			<div id="i3-panel" class="remote-input" role="group" aria-label="i3 window manager shortcuts" hidden>
+				<button class="ib text-button i3-close" type="button" data-i3="close" title="Alt+Shift+Q">Close window</button>
+				<div class="i3-grid">
+					<button class="ib text-button" type="button" data-workspace="1" title="Alt+1">1 Terminal</button>
+					<button class="ib text-button" type="button" data-workspace="2" title="Alt+2">2 Web</button>
+					<button class="ib text-button" type="button" data-workspace="3" title="Alt+3">3 Files</button>
+					<button class="ib text-button" type="button" data-workspace="4" title="Alt+4">4 Misc</button>
+				</div>
+				<div class="i3-caption">Open</div>
+				<div class="i3-grid">
+					<button class="ib text-button" type="button" data-i3="terminal" title="Alt+Enter">Terminal +</button>
+					<button class="ib text-button" type="button" data-i3="dropdown" title="Alt+` — show/hide top terminal">Drop-down</button>
+					<button class="ib text-button" type="button" data-i3="browser" title="Alt+B">Browser</button>
+					<button class="ib text-button" type="button" data-i3="files" title="Alt+Shift+E">Files</button>
+					<button class="ib text-button" type="button" data-i3="launcher" title="Alt+D">Apps</button>
+				</div>
+				<div class="i3-caption">Focus window</div>
+				<div class="i3-grid">
+					<button class="ib text-button" type="button" data-i3="left" aria-label="Focus left">←</button>
+					<button class="ib text-button" type="button" data-i3="up" aria-label="Focus up">↑</button>
+					<button class="ib text-button" type="button" data-i3="down" aria-label="Focus down">↓</button>
+					<button class="ib text-button" type="button" data-i3="right" aria-label="Focus right">→</button>
+				</div>
+				<div class="i3-caption">Layout</div>
+				<div class="i3-grid">
+					<button class="ib text-button" type="button" data-i3="tabbed" title="Alt+W">Tabbed</button>
+					<button class="ib text-button" type="button" data-i3="split" title="Alt+E">Split</button>
+					<button class="ib text-button" type="button" data-i3="fullscreen" title="Alt+F">Full</button>
+					<button class="ib text-button" type="button" data-i3="picker" title="Alt+Tab">Windows</button>
+				</div>
+			</div>
+			<button id="i3-btn" class="ib text-button remote-input" type="button" aria-controls="i3-panel" aria-expanded="false" title="i3 workspace and window shortcuts">i3</button>
+			<button id="precision-btn" class="ib text-button touch-only remote-input on" type="button" aria-pressed="true" title="Fine cursor speed for precise targeting; turn off for faster travel">Fine</button>
+			<button id="touch-mode-btn" class="ib text-button touch-only remote-input" type="button" aria-label="Input mode: Pad. Tap to change mode." title="Input mode: Pad / Direct">Pad</button>
+			<button id="left-btn" class="ib text-button touch-only remote-input" type="button" title="Left click at cursor">Click</button>
+			<button id="right-btn" class="ib text-button touch-only remote-input" type="button" title="Right click at cursor">Right</button>
+			<button id="drag-btn" class="ib text-button touch-only remote-input" type="button" title="Hold left mouse button; swipe to drag; tap again to release" aria-pressed="false">Drag</button>
+			<button id="zoom-btn" class="ib text-button touch-only" type="button" title="Cycle zoom; trackpad view follows cursor">Zoom 1×</button>
+			<button id="help-btn" class="ib text-button touch-only" type="button" aria-label="Touch gesture help">?</button>
+			<button id="install-btn" class="ib text-button" type="button" title="Install Voxl as an app">Install</button>
 			<button
 				id="kb-btn"
 				class="ib"

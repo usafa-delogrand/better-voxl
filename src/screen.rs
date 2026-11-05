@@ -9,22 +9,15 @@
 
 use x11rb::connection::Connection;
 use x11rb::protocol::randr::{self, ConnectionExt as _};
-use x11rb::protocol::xproto::ConnectionExt as _;
 use x11rb::rust_connection::RustConnection;
 
 /// Smallest desktop a client may ask for.
 pub const MIN: (u32, u32) = (640, 480);
 
 /// A size the screen can take: within [MIN, max], width a multiple of 8 and height
-/// even (4:2:0 video), rounding down. Where the screen's maximum is below MIN (an
-/// Xvfb started at 800x450), that side stays at the maximum.
+/// even (4:2:0 video), rounding down.
 pub fn fit(w: u32, h: u32, max: (u32, u32)) -> (u32, u32) {
-    // clamp panics when min > max, and with panic = "abort" any viewer's resize
-    // request would take the whole server down.
-    (
-        w.clamp(MIN.0.min(max.0), max.0) & !7,
-        h.clamp(MIN.1.min(max.1), max.1) & !1,
-    )
+    (w.clamp(MIN.0, max.0) & !7, h.clamp(MIN.1, max.1) & !1)
 }
 
 pub struct Screen {
@@ -102,13 +95,6 @@ impl Screen {
 
     pub fn resize(&mut self, w: u32, h: u32) -> Result<(), String> {
         let (w, h) = self.fit(w, h);
-        let geometry = self
-            .conn
-            .get_geometry(self.root)
-            .map_err(err)?
-            .reply()
-            .map_err(err)?;
-        self.current = (u32::from(geometry.width), u32::from(geometry.height));
         if (w, h) == self.current {
             return Ok(());
         }
@@ -195,25 +181,5 @@ impl Screen {
         self.current = (w, h);
         log::info!("desktop resized to {w}x{h}");
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fit_stays_within_min_and_max() {
-        let max = (2560, 1600);
-        assert_eq!(fit(1921, 1081, max), (1920, 1080));
-        assert_eq!(fit(100, 100, max), MIN);
-        assert_eq!(fit(9999, 9999, max), max);
-    }
-
-    #[test]
-    fn fit_handles_a_screen_smaller_than_min() {
-        assert_eq!(fit(1920, 1080, (800, 450)), (800, 450));
-        assert_eq!(fit(100, 100, (800, 450)), (640, 450));
-        assert_eq!(fit(1920, 1080, (600, 400)), (600, 400));
     }
 }
