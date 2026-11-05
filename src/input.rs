@@ -177,6 +177,40 @@ struct Injector {
     scratch_path: std::path::PathBuf,
 }
 
+/// Caps Lock reverses Shift only for a lowercase/uppercase letter pair, not
+/// for number-row punctuation or modifier keys. Handle Latin-1 and Unicode keysyms.
+fn shift_level_for_keysym(level: usize, lower: u32, upper: u32, caps: bool) -> usize {
+    let character = |sym: u32| {
+        if sym <= 0xff { char::from_u32(sym) }
+        else if sym & 0xff000000 == 0x01000000 { char::from_u32(sym & 0x00ffffff) }
+        else { None }
+    };
+    let case_pair = match (character(lower), character(upper)) {
+        (Some(lo), Some(hi)) if lo != hi && lo.is_lowercase() => {
+            let mut uppercase = lo.to_uppercase();
+            uppercase.next() == Some(hi) && uppercase.next().is_none()
+        }
+        _ => false,
+    };
+    level ^ usize::from(caps && case_pair)
+}
+
+#[cfg(test)]
+mod caps_lock_tests {
+    use super::shift_level_for_keysym;
+    #[test]
+    fn caps_lock_compensates_letters_but_not_punctuation() {
+        for caps in [false, true] {
+            for level in [0, 1] {
+                assert_eq!(shift_level_for_keysym(level, 0x61, 0x41, caps), level ^ usize::from(caps));
+                assert_eq!(shift_level_for_keysym(level, 0xe9, 0xc9, caps), level ^ usize::from(caps));
+                assert_eq!(shift_level_for_keysym(level, 0x31, 0x21, caps), level);
+                assert_eq!(shift_level_for_keysym(level, 0xffe5, 0, caps), level);
+            }
+        }
+    }
+}
+
 impl Injector {
     fn new(display: Option<&str>) -> Result<Self, String> {
         let (conn, n) = RustConnection::connect(display).map_err(|e| e.to_string())?;
@@ -287,12 +321,28 @@ impl Injector {
             let l0 = row[0];
             let l1 = if row.len() > 1 { row[1] } else { 0 };
             let shift_neutral = l1 == 0 || l0 == l1 || (0xfd00..0x10000).contains(&keysym);
-            if lvl == want_level || shift_neutral {
+            // Shortcut chords are physical keys with explicit modifiers. Never
+            // lift Shift to match a lowercase keysym, or Caps/Option can break
+            // window-manager shortcuts such as Alt+Shift+Q.
+            let shortcut = self.pressed.keys().any(|sym|
+                matches!(*sym, 0xffe3 | 0xffe4 | 0xffe7 | 0xffe8 | 0xffe9 | 0xffea | 0xffeb | 0xffec));
+            if shortcut {
+                return (kc, ShiftFix::None);
+            }
+            // Browser keysyms already reflect the viewer's Caps Lock state. X11
+            // applies the remote Lock modifier too, so choose the physical Shift
+            // level after accounting for Lock, rather than capitalising twice.
+            // Query the real X state: another client may also toggle Caps Lock.
+            let caps = self.conn.query_pointer(self.root).ok()
+                .and_then(|cookie| cookie.reply().ok())
+                .is_some_and(|r| r.mask.contains(xproto::KeyButMask::LOCK));
+            let target_level = shift_level_for_keysym(lvl, l0, l1, caps);
+            if target_level == want_level || shift_neutral {
                 return (kc, ShiftFix::None);
             }
             return (
                 kc,
-                if lvl == 1 {
+                if target_level == 1 {
                     ShiftFix::Add
                 } else {
                     ShiftFix::Lift

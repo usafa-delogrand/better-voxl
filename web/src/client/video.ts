@@ -86,19 +86,38 @@ export function createVideo(
 	function layout() {
 		const { w: dw, h: dh } = app.desk;
 		if (!dw) return;
-		const vw = window.innerWidth,
-			vh = window.innerHeight;
+		const viewport = window.visualViewport;
+		const mobile = matchMedia('(pointer: coarse)').matches;
+		const styles = getComputedStyle(document.documentElement);
+		const inset = (name: string) => mobile ? parseFloat(styles.getPropertyValue(`--safe-${name}`)) || 0 : 0;
+		const safeLeft = inset('left'), safeRight = inset('right'), safeTop = inset('top');
+		const safeBottom = app.tools.classList.contains('keyboard-open') ? 0 : inset('bottom');
+		const rawWidth = viewport?.width || window.innerWidth, rawHeight = viewport?.height || window.innerHeight;
+		const vw = Math.max(1, rawWidth - safeLeft - safeRight);
+		const toolbar = mobile ? app.tools.getBoundingClientRect().height + 16 : 0;
+		const vh = Math.max(1, rawHeight - toolbar - safeTop - safeBottom - (mobile ? 24 : 0));
 		const dpr = window.devicePixelRatio || 1;
 		// Snap the height so every stripe boundary lands on a whole device pixel;
 		// otherwise the stacked stripe layers show hairline seams.
 		const q = dh / stripes.reduce((g, [y]) => gcd(g, y), dh);
 		const devH = Math.max(
 			q,
-			Math.floor(((Math.min(vw / dw, vh / dh) || 1) * dh * dpr) / q) * q
+			Math.floor(((Math.min(vw / dw, vh / dh) || 1) * app.view.zoom * dh * dpr) / q) * q
 		);
 		app.view.scale = devH / dpr / dh;
 		app.surface.style.width = `${dw * app.view.scale}px`;
 		app.surface.style.height = `${dh * app.view.scale}px`;
+		app.surface.style.position = 'fixed';
+		const sw = dw * app.view.scale, sh = dh * app.view.scale;
+		const pan = (size: number, available: number, focus: number) => size <= available
+			? (available - size) / 2
+			: Math.max(available - size, Math.min(0, available / 2 - focus * size));
+		const portrait = mobile && rawHeight > rawWidth * 1.1;
+		// Mobile reserves the top strip for the dock, including in an iframe whose
+		// viewport does not shrink for the iPad keyboard. Desktop stays centered.
+		const vertical = portrait && sh <= vh ? Math.min(12, (vh - sh) / 2) : pan(sh, vh, app.view.y);
+		app.surface.style.left = `${(viewport?.offsetLeft || 0) + safeLeft + pan(sw, vw, app.view.x)}px`;
+		app.surface.style.top = `${(viewport?.offsetTop || 0) + safeTop + toolbar + (mobile ? 12 : 0) + vertical}px`;
 		onLayout();
 	}
 

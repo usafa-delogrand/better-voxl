@@ -15,13 +15,15 @@ export interface App {
 	isMac: boolean;
 	/** The desktop is a Mac (from the server's hello). */
 	remoteMac: boolean;
+	/** Explicit Ctrl/Alt/Super toggles held by the control dock. */
+	modifiers: Set<number>;
 	/** The server only shows the desktop (--read-only), from the server's hello. */
 	readOnly: boolean;
 	inIframe: boolean;
 	/** Desktop size in pixels; 0 until the server says hello. */
 	desk: { w: number; h: number };
 	/** On-screen CSS pixels per desktop pixel. */
-	view: { scale: number };
+	view: { scale: number; zoom: number; x: number; y: number };
 }
 
 export function el<T extends HTMLElement = HTMLElement>(id: string): T {

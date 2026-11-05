@@ -47,9 +47,12 @@ export interface Hello {
 	resize?: { scale: number };
 }
 
+export interface SessionInfo { id: number; agent: string; seconds: number; video: boolean; audio: boolean; }
+
 /** JSON text messages from the server. */
 export type ServerMessage =
 	| Hello
+	| { t: 'sessions'; selfId: number; sessions: SessionInfo[] }
 	| { t: 'ping'; s: number }
 	| { t: 'clip'; d: string }
 	| { t: 'mic'; on: boolean }
@@ -121,7 +124,7 @@ export interface Stats {
 /** Worker -> page. Server messages other than ping and close are forwarded as is. */
 export type FromWorker =
 	| { t: 'frames'; parts: StripeFrame[] }
-	| { t: 'status'; s: 'open' | 'closed' }
+	| { t: 'status'; s: 'open' | 'closed' | 'disconnected' }
 	| { t: 'cursor'; buf: ArrayBuffer }
 	| { t: 'clipImage'; buf: ArrayBuffer }
 	| { t: 'log'; s: string }

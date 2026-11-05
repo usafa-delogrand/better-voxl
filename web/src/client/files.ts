@@ -4,6 +4,7 @@
 import type { FilesConfig } from '../protocol';
 import type { App } from './app';
 import { el } from './app';
+import { pageSession } from './session';
 
 interface Entry {
 	name: string;
@@ -58,7 +59,7 @@ const ICON_CHEVRON = svg(
 // The password from a sign-in link (/?token=...), passed on as the socket gets it.
 const token = new URLSearchParams(location.search).get('token');
 const api = (op: string, q: Record<string, string>) =>
-	`files/${op}?${new URLSearchParams(token ? { ...q, token } : q)}`;
+	`files/${op}?${new URLSearchParams(pageSession ? { ...q, session: pageSession } : token ? { ...q, token } : q)}`;
 const label = (p: string) => (p ? p.split('/').pop()! : 'Home');
 const join = (a: string, b: string) => (a ? a + '/' : '') + b;
 const size = (n: number) =>

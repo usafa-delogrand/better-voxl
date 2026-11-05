@@ -1,6 +1,5 @@
 // Main thread: layout, input capture, cursor, clipboard, files, microphone and audio.
 // Video decode/paint and the socket live in the worker (worker.ts).
-import { cmd } from '../protocol';
 import type { FromWorker, ToWorker } from '../protocol';
 import type { App } from './app';
 import { el } from './app';
@@ -11,9 +10,13 @@ import { createFiles } from './files';
 import { setupKeyboard } from './keyboard';
 import { createMic } from './mic';
 import { setupPointer } from './pointer';
+import { setupPwa } from './pwa';
+import { pageSession } from './session';
+import { setupSessions } from './sessions';
 import { createResize } from './resize';
 import { setupToolbar } from './toolbar';
 import { createVideo } from './video';
+import { viewportBounds } from './viewport';
 
 /**
  * Commands a read-only viewer sends: acks, video and audio on/off, keyframe requests
@@ -22,7 +25,7 @@ import { createVideo } from './video';
  * (READ_ONLY_COMMANDS in server.rs), so a page that ignores the hello flag cannot
  * drive the desktop either; this keeps it from sending what would be dropped.
  */
-const READ_ONLY_COMMANDS = new Set(['a', 'v', 'au', 'kf', 'po']);
+const READ_ONLY_COMMANDS = new Set(['a', 'v', 'au', 'kf', 'po', 'sessions']);
 
 function blocksInput(app: App, command: string): boolean {
 	return app.readOnly && !READ_ONLY_COMMANDS.has(command.split(',')[0]);
@@ -52,7 +55,11 @@ function main() {
 	const wsUrl = new URL('ws', location.href);
 	wsUrl.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 	wsUrl.search = location.search;
-	const worker = new Worker('worker.js' + location.search);
+	if (pageSession) {
+		wsUrl.searchParams.delete('token');
+		wsUrl.searchParams.set('session', pageSession);
+	}
+	const worker = new Worker('worker.js');
 	const post = (m: ToWorker, transfer: Transferable[] = []) =>
 		worker.postMessage(m, transfer);
 	const app: App = {
@@ -74,10 +81,11 @@ function main() {
 		tools: el('tools'),
 		isMac: /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent),
 		remoteMac: false,
+		modifiers: new Set(),
 		readOnly: false,
 		inIframe: window !== window.top,
 		desk: { w: 0, h: 0 },
-		view: { scale: 1 },
+		view: { scale: 1, zoom: 1, x: 0.5, y: 0.5 },
 	};
 
 	const cursor = createCursor(app);
@@ -94,7 +102,34 @@ function main() {
 	};
 	setupPointer(app, onInteract);
 	setupKeyboard(app, clipboard, onInteract);
-	setupToolbar(app, video.layout);
+	setupToolbar(app, video.layout, clipboard);
+	setupSessions(app);
+	app.surface.addEventListener('voxl-layout', video.layout);
+	setupPwa();
+	// iOS's keyboard changes the visual viewport without resizing the layout viewport.
+	const viewport = window.visualViewport;
+	const fitViewport = () => {
+		const bounds = viewportBounds(viewport, window.innerWidth, window.innerHeight);
+		const focused = document.activeElement;
+		// Embedded Safari may not report the parent keyboard in visualViewport.
+		const typing = focused === app.kbd ? !!app.kbd.dataset.soft :
+			focused instanceof HTMLTextAreaElement || (focused instanceof HTMLInputElement &&
+				['text', 'search', 'email', 'url', 'tel', 'number', 'password'].includes(focused.type));
+		const keyboardOpen = bounds.keyboardOpen || (app.tools.classList.contains('touch') && typing);
+		const opening = keyboardOpen && !app.tools.classList.contains('keyboard-open');
+		app.tools.classList.toggle('keyboard-open', keyboardOpen);
+		for (const name of ['width', 'height', 'left', 'top', 'bottom'] as const)
+			document.documentElement.style.setProperty(`--viewport-${name}`, `${bounds[name]}px`);
+		if (opening) app.surface.dispatchEvent(new Event('voxl-release-pointer'));
+		video.layout();
+	};
+	viewport?.addEventListener('resize', fitViewport);
+	viewport?.addEventListener('scroll', fitViewport);
+	document.addEventListener('focusin', fitViewport);
+	document.addEventListener('focusout', fitViewport);
+	app.surface.addEventListener('voxl-keyboard-change', fitViewport);
+	new ResizeObserver(() => video.layout()).observe(app.tools);
+	fitViewport();
 	const files = createFiles(app);
 	const mic = createMic(app);
 	const resize = createResize(app);
@@ -117,10 +152,10 @@ function main() {
 	}
 	document.addEventListener('visibilitychange', () => {
 		updateVisibility();
-		if (document.hidden) app.send(cmd.releaseAll);
+		if (document.hidden) app.surface.dispatchEvent(new Event('voxl-release-input'));
 	});
 	window.addEventListener('resize', () => {
-		video.layout();
+		fitViewport();
 		updateVisibility();
 	});
 	updateVisibility();
@@ -135,8 +170,10 @@ function main() {
 				app.desk.w = m.w;
 				app.desk.h = m.h;
 				app.remoteMac = m.os === 'macos';
+				app.tools.classList.toggle('remote-mac', app.remoteMac);
 				app.readOnly = !!m.readOnly;
 				app.tools.classList.toggle('read-only', app.readOnly);
+				app.surface.dispatchEvent(new Event('voxl-controls-update'));
 				video.build(m.stripes && m.stripes.length ? m.stripes : [[0, m.h]]);
 				video.layout();
 				files.setup(m.files);
@@ -145,10 +182,16 @@ function main() {
 				statusEl.style.display = 'none';
 				break;
 			case 'status':
-				if (m.s === 'closed') {
+				if (m.s === 'closed' || m.s === 'disconnected') {
 					mic.stop();
 					statusEl.style.display = '';
-					statusEl.textContent = 'Reconnecting…';
+					statusEl.textContent = m.s === 'disconnected' ? 'Session disconnected. You can close this tab.' : 'Reconnecting…';
+					if (m.s === 'disconnected') {
+						// The server has already closed the socket and removed this viewer.
+						// Script-opened tabs can close; manually opened tabs may be blocked.
+						worker.terminate();
+						try { window.close(); } catch {}
+					}
 				}
 				if (m.s === 'open') updateVisibility(true);
 				break;

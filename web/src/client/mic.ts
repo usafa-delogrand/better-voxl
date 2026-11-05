@@ -69,7 +69,7 @@ export function createMic(app: App) {
 				numberOfFrames: f.length,
 				numberOfChannels: 1,
 				timestamp: ts,
-				data: f,
+				data: f.slice(),
 			});
 			ts += 20000;
 			enc.encode(data);

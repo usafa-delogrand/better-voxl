@@ -72,10 +72,11 @@ function connect() {
 		send(cmd.video(wantVideo));
 		send(cmd.audio(wantAudio));
 	});
-	sock.addEventListener('close', () => {
-		post({ t: 'status', s: 'closed' });
+	sock.addEventListener('close', (event) => {
+		const kicked = event.code === 4001;
+		post({ t: 'status', s: kicked ? 'disconnected' : 'closed' });
 		resetDecoder();
-		setTimeout(connect, 1000);
+		if (!kicked) setTimeout(connect, 1000);
 	});
 	sock.addEventListener('message', (e: MessageEvent<string | ArrayBuffer>) => {
 		if (typeof e.data === 'string') return onText(e.data);

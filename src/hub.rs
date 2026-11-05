@@ -21,6 +21,9 @@ pub struct Inflight {
 
 pub struct Client {
     pub id: u64,
+    pub joined: Instant,
+    pub agent: Mutex<String>,
+    pub disconnect: tokio::sync::Notify,
     pub tx: mpsc::UnboundedSender<Out>,
     pub video: AtomicBool,
     pub audio: AtomicBool,
@@ -41,6 +44,8 @@ pub struct DelayEst {
     pub base_ms: f64,
     pub base_at: Instant,
     pub queue_ms: f64,
+    /// Changes only when a matched video acknowledgement supplies a delay sample.
+    pub samples: u64,
 }
 
 pub struct RateEst {
@@ -78,6 +83,7 @@ impl Client {
             }
             let qd = ms - e.base_ms;
             e.queue_ms = e.queue_ms * 0.7 + qd * 0.3;
+            e.samples = e.samples.wrapping_add(1);
         }
         let mut d = self.delivered.lock();
         d.bytes += acked;
@@ -295,6 +301,9 @@ impl Hub {
     pub fn add_client(&self, tx: mpsc::UnboundedSender<Out>) -> Arc<Client> {
         let c = Arc::new(Client {
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
+            joined: Instant::now(),
+            agent: Mutex::new(String::new()),
+            disconnect: tokio::sync::Notify::new(),
             tx,
             video: AtomicBool::new(false),
             audio: AtomicBool::new(false),
@@ -311,6 +320,7 @@ impl Hub {
                 base_ms: f64::MAX,
                 base_at: Instant::now(),
                 queue_ms: 0.0,
+                samples: 0,
             }),
         });
         self.clients.lock().push(c.clone());

@@ -84,11 +84,22 @@ impl Encoder {
             param.rc.i_rc_method = ffi::X264_RC_CRF as i32;
             param.rc.f_rf_constant = cfg.crf;
             param.rc.i_lookahead = 0;
-            // ultrafast's diamond search only follows motion of a few pixels, so a dragged
-            // window or a fast scroll would be coded as new pixels every frame. UMH finds
-            // those shifts (a third of the bits for a window drag) for about the same CPU.
-            param.analyse.i_me_method = ffi::X264_ME_UMH as i32;
+            // UMH favors compression for large motion; HEX reduces CPU cost on
+            // constrained hosts. Keep the original default and allow measured tuning.
+            // CRF, static refinement quality and resolution are independent of search.
+            let search = std::env::var("VOXL_MOTION_SEARCH").unwrap_or_else(|_| "umh".into());
+            param.analyse.i_me_method = match search.as_str() {
+                "umh" => ffi::X264_ME_UMH,
+                "hex" => ffi::X264_ME_HEX,
+                "dia" => ffi::X264_ME_DIA,
+                _ => {
+                    return Err(format!(
+                        "invalid VOXL_MOTION_SEARCH {search:?}: use umh, hex or dia"
+                    ))
+                }
+            } as i32;
             param.analyse.i_me_range = 64;
+            log::info!("x264 motion search: {search}, {} threads", cfg.threads);
             // Per-macroblock "unchanged" hints from X damage let x264 skip analysis.
             param.analyse.b_mb_info = (std::env::var("VOXL_NO_MBINFO").is_err()) as i32;
             param.i_sync_lookahead = 0;
@@ -98,10 +109,9 @@ impl Encoder {
                 // ~2 frames of buffer keeps single-frame spikes bounded.
                 param.rc.i_vbv_buffer_size = (cfg.max_kbps / cfg.fps.max(1) * 5 / 4) as i32;
             }
-            // sRGB content (BT.709 primaries, sRGB transfer) in BT.601 limited range,
-            // matching libyuv ARGBToI420 and the macOS NV12 capture.
+            // BT.601 limited range, matching libyuv ARGBToI420.
             param.vui.i_colorprim = 1;
-            param.vui.i_transfer = 13; // IEC 61966-2-1: every capture path delivers sRGB
+            param.vui.i_transfer = 1;
             param.vui.i_colmatrix = 6;
             param.vui.b_fullrange = 0;
             let profile = c"high";
@@ -210,6 +220,10 @@ impl Drop for Encoder {
         unsafe { ffi::x264_encoder_close(self.h) }
     }
 }
+
+#[cfg(test)]
+#[path = "encoder/motion_bench.rs"]
+mod motion_bench;
 
 #[cfg(test)]
 mod bench {
